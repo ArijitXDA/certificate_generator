@@ -1,5 +1,5 @@
 # ======================================
-# app.py — Certificate Generator (with Admin Login)
+# app.py — Certificate Generator (stable rerun + admin login)
 # ======================================
 
 import streamlit as st
@@ -8,24 +8,41 @@ import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 import unicodedata, re, zipfile, tempfile, io, os
 
+# ------------------ Helpers for safe rerun ------------------
+def safe_rerun():
+    """
+    Use the stable st.rerun() and guard against exceptions on cloud.
+    """
+    try:
+        st.rerun()
+    except Exception:
+        # If rerun fails for any reason, stop execution to avoid partial rendering.
+        st.stop()
+
 # ------------------ Simple Admin Authentication ------------------
 # Uses Streamlit secrets (set ADMIN_USERNAME and ADMIN_PASSWORD in Streamlit Cloud)
-admin_username = st.secrets.get("ADMIN_USERNAME") if hasattr(st, "secrets") else None
-admin_password = st.secrets.get("ADMIN_PASSWORD") if hasattr(st, "secrets") else None
+admin_username = None
+admin_password = None
+if hasattr(st, "secrets"):
+    admin_username = st.secrets.get("ADMIN_USERNAME")
+    admin_password = st.secrets.get("ADMIN_PASSWORD")
 
 def _check_credentials(u, p):
     if not u or not p:
         return False
     return (admin_username is not None and admin_password is not None and u == admin_username and p == admin_password)
 
+# Initialize login state
 if "logged_in" not in st.session_state:
     st.session_state.logged_in = False
 
+# If not logged in, show login UI and stop the rest
 if not st.session_state.logged_in:
+    st.set_page_config(page_title="Certificate Generator (Login)", layout="wide")
     st.markdown("## 🔐 Admin login required")
     user = st.text_input("Username")
     pwd = st.text_input("Password", type="password")
-    col1, col2 = st.columns([1,1])
+    col1, col2 = st.columns([1, 1])
     with col1:
         do_login = st.button("Login")
     with col2:
@@ -34,18 +51,17 @@ if not st.session_state.logged_in:
     if do_login:
         if _check_credentials(user, pwd):
             st.session_state.logged_in = True
-            st.experimental_rerun()
+            safe_rerun()
         else:
             st.error("Invalid credentials.")
     st.stop()
 
-# If logged in, show a Logout button
-logout_col1, logout_col2 = st.columns([9,1])
+# If logged in, provide a logout button (top-right style)
+logout_col1, logout_col2 = st.columns([9, 1])
 with logout_col2:
     if st.button("Logout"):
         st.session_state.logged_in = False
-        st.experimental_rerun()
-# -----------------------------------------------------------------
+        safe_rerun()
 
 # ------------------------------
 # Utility functions
@@ -162,13 +178,13 @@ def generate_certificates_from_inputs(df, template_path, fonts, signature_path, 
             except Exception:
                 pass
 
-        # Save
+        # Save image
         fname = f"{sanitize_filename(webinar)}_{sanitize_filename(date)}_{sanitize_filename(name)}.{config['output_format'].lower()}"
         out_path = out_dir / fname
         img.convert("RGB").save(out_path, config['output_format'].upper(), quality=config.get("jpg_quality", 95))
         created.append(out_path)
 
-    # Zip everything
+    # Zip results
     zip_path = out_dir / "certificates.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in created:
@@ -347,7 +363,7 @@ if st.button("Generate Certificates"):
         FONT_PATH_NAME = pick_font(fonts_dir_used, ["PlayfairDisplay-Bold.ttf","PlayfairDisplay-Regular.ttf","PlayfairDisplay-ExtraBold.ttf"])
         FONT_PATH_WEBINAR = pick_font(fonts_dir_used, ["Montserrat-Bold.ttf","Montserrat-Regular.ttf"])
         FONT_PATH_PARA = pick_font(fonts_dir_used, ["Lora-Regular.ttf","Lora-Italic.ttf","Lora-Bold.ttf"])
-        FONT_PATH_DATE = pick_font(fonts_dir_used, ["OpenSans-Regular.ttf","OpenSans-Bold.ttf"])        
+        FONT_PATH_DATE = pick_font(fonts_dir_used, ["OpenSans-Regular.ttf","OpenSans-Bold.ttf"])
 
         fonts = {"name": FONT_PATH_NAME, "webinar": FONT_PATH_WEBINAR, "para": FONT_PATH_PARA, "date": FONT_PATH_DATE}
 
