@@ -1,5 +1,5 @@
 # ======================================
-# app.py — Certificate Generator (final)
+# app.py — Certificate Generator (with Admin Login)
 # ======================================
 
 import streamlit as st
@@ -7,6 +7,45 @@ from pathlib import Path
 import pandas as pd
 from PIL import Image, ImageDraw, ImageFont
 import unicodedata, re, zipfile, tempfile, io, os
+
+# ------------------ Simple Admin Authentication ------------------
+# Uses Streamlit secrets (set ADMIN_USERNAME and ADMIN_PASSWORD in Streamlit Cloud)
+admin_username = st.secrets.get("ADMIN_USERNAME") if hasattr(st, "secrets") else None
+admin_password = st.secrets.get("ADMIN_PASSWORD") if hasattr(st, "secrets") else None
+
+def _check_credentials(u, p):
+    if not u or not p:
+        return False
+    return (admin_username is not None and admin_password is not None and u == admin_username and p == admin_password)
+
+if "logged_in" not in st.session_state:
+    st.session_state.logged_in = False
+
+if not st.session_state.logged_in:
+    st.markdown("## 🔐 Admin login required")
+    user = st.text_input("Username")
+    pwd = st.text_input("Password", type="password")
+    col1, col2 = st.columns([1,1])
+    with col1:
+        do_login = st.button("Login")
+    with col2:
+        if st.button("Help"):
+            st.info("Enter admin username and password (provided by app owner).")
+    if do_login:
+        if _check_credentials(user, pwd):
+            st.session_state.logged_in = True
+            st.experimental_rerun()
+        else:
+            st.error("Invalid credentials.")
+    st.stop()
+
+# If logged in, show a Logout button
+logout_col1, logout_col2 = st.columns([9,1])
+with logout_col2:
+    if st.button("Logout"):
+        st.session_state.logged_in = False
+        st.experimental_rerun()
+# -----------------------------------------------------------------
 
 # ------------------------------
 # Utility functions
@@ -123,13 +162,13 @@ def generate_certificates_from_inputs(df, template_path, fonts, signature_path, 
             except Exception:
                 pass
 
-        # Save image
+        # Save
         fname = f"{sanitize_filename(webinar)}_{sanitize_filename(date)}_{sanitize_filename(name)}.{config['output_format'].lower()}"
         out_path = out_dir / fname
         img.convert("RGB").save(out_path, config['output_format'].upper(), quality=config.get("jpg_quality", 95))
         created.append(out_path)
 
-    # Zip results
+    # Zip everything
     zip_path = out_dir / "certificates.zip"
     with zipfile.ZipFile(zip_path, "w", zipfile.ZIP_DEFLATED) as zf:
         for f in created:
@@ -157,7 +196,6 @@ fonts_dir = base_dir_p / "fonts"
 signature_file = None
 
 if base_dir_p.exists():
-    # pick a png that looks like template
     for f in base_dir_p.glob("*.png"):
         if "template" in f.name.lower() or "certificate" in f.name.lower():
             template_file = f
@@ -187,7 +225,7 @@ st.sidebar.write("Signature:", signature_file)
 template_path = st.sidebar.text_input("Template path (leave blank to use detected)", value=str(template_file) if template_file else "")
 fonts_dir_path = st.sidebar.text_input("Fonts folder path (leave blank to use detected)", value=str(fonts_dir) if fonts_dir.exists() else "")
 
-# attendees uploader (key change) — user can upload from local drive
+# attendees uploader (user uploads attendee file)
 st.sidebar.markdown("**Attendees file (upload from your computer)**")
 uploaded_attendees = st.sidebar.file_uploader("Upload attendees Excel/CSV", type=["xlsx", "xls", "csv"])
 
@@ -292,7 +330,7 @@ if st.button("Generate Certificates"):
                 st.error(f"Attendees file missing required column: {col}")
                 st.stop()
 
-        # detect fonts (prefer fonts_dir_path or base fonts folder)
+        # fonts detection
         fonts_dir_used = Path(fonts_dir_path) if (fonts_dir_path and Path(fonts_dir_path).exists()) else (fonts_dir if fonts_dir.exists() else None)
 
         def pick_font(dirpath, preferred):
